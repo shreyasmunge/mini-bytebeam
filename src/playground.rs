@@ -326,10 +326,10 @@ async fn tick_playground_keepalive(pool: &sqlx::PgPool) -> Result<(), String> {
         };
         upsert_twin(pool, &twin)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("{e:?}"))?;
         mark_device_online(pool, row.id)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("{e:?}"))?;
 
         // Clear stale offline alerts when the demo fleet is breathing again.
         let _ = sqlx::query(
