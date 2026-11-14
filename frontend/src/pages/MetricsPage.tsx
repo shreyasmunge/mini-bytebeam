@@ -127,11 +127,11 @@ export function MetricsPage() {
   const hostedMax = 200;
   const blastCurl = `curl -s -X POST ${apiBase}/playground/ingest \\
   -H 'content-type: application/json' \\
-  -d '{"count":100}'`;
+  -d '{"count":100,"vehicles":10}'`;
 
   return (
-    <main className="mx-auto max-w-5xl px-4 pb-16 pt-28 md:pt-32">
-      <h1 className="brand text-4xl text-[var(--ink)]">Pipeline</h1>
+    <main className="page-shell mx-auto max-w-5xl px-3 pb-16 sm:px-4">
+      <h1 className="brand text-3xl text-[var(--ink)] sm:text-4xl">Pipeline</h1>
       <p className="mt-2 text-[var(--muted)]">
         Live ingest via the hosted API. Small demo blasts only on free hosting.
       </p>

@@ -89,7 +89,6 @@ export function getDemoSnapshot(): FleetVehicle[] {
     }
 
     const in_red_zone =
-      status === "offline" ||
       battery < thresholds.battery_low_pct ||
       temp > thresholds.engine_temp_alert_c;
 

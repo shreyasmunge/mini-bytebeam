@@ -259,12 +259,94 @@ fn generate_events(count: usize, vehicles: usize) -> Vec<TelemetryRequest> {
                 recorded_at: now,
                 latitude: 12.90 + (v as f64) * 0.002,
                 longitude: 77.50 + ((v % 20) as f64) * 0.01,
-                speed_kmh: 20.0 + ((i % 60) as f64),
-                battery_pct: 30.0 + ((i % 70) as f64),
-                engine_temp_c: 80.0 + ((i % 40) as f64),
+                speed_kmh: 20.0 + ((i % 40) as f64),
+                // Stay under red-zone thresholds (battery≥15, temp≤110 by default).
+                battery_pct: 55.0 + ((v % 35) as f64),
+                engine_temp_c: 78.0 + ((v % 18) as f64),
             }
         })
         .collect()
+}
+
+/// Keep hosted playground vehicles online with healthy twin ticks (demo map).
+pub async fn playground_keepalive(pool: sqlx::PgPool) {
+    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(12));
+    loop {
+        ticker.tick().await;
+        if let Err(err) = tick_playground_keepalive(&pool).await {
+            tracing::warn!("playground keepalive: {err}");
+        }
+    }
+}
+
+async fn tick_playground_keepalive(pool: &sqlx::PgPool) -> Result<(), String> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: Uuid,
+        latitude: Option<f64>,
+        longitude: Option<f64>,
+        battery_pct: Option<f64>,
+    }
+
+    let rows: Vec<Row> = sqlx::query_as(
+        r#"
+        SELECT d.id, s.latitude, s.longitude, s.battery_pct
+        FROM devices d
+        INNER JOIN device_state s ON s.device_id = d.id
+        WHERE d.name LIKE 'playground-%'
+        ORDER BY d.name
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let now = Utc::now();
+    for (i, row) in rows.iter().enumerate() {
+        let base_lat = row.latitude.unwrap_or(12.97);
+        let base_lon = row.longitude.unwrap_or(77.59);
+        let drift = ((now.timestamp() as usize / 12 + i) % 20) as f64 * 0.00008;
+        let battery = (row.battery_pct.unwrap_or(70.0) + 0.2).clamp(55.0, 95.0);
+        let temp = 82.0 + ((i % 12) as f64);
+        let speed = 25.0 + ((i % 30) as f64);
+
+        let twin = TwinUpdate {
+            device_id: row.id,
+            recorded_at: now,
+            latitude: base_lat + drift,
+            longitude: base_lon + drift * 0.6,
+            speed_kmh: speed,
+            battery_pct: battery,
+            engine_temp_c: temp,
+        };
+        upsert_twin(pool, &twin)
+            .await
+            .map_err(|e| e.to_string())?;
+        mark_device_online(pool, row.id)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Clear stale offline alerts when the demo fleet is breathing again.
+        let _ = sqlx::query(
+            r#"
+            UPDATE alerts
+            SET acknowledged_at = now()
+            WHERE device_id = $1
+              AND kind = 'offline'
+              AND acknowledged_at IS NULL
+            "#,
+        )
+        .bind(row.id)
+        .execute(pool)
+        .await;
+    }
+
+    Ok(())
 }
 
 async fn ensure_playground_devices(

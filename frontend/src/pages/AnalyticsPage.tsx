@@ -86,7 +86,7 @@ export function AnalyticsPage() {
   }, [filtered]);
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(160deg,#d9cdb8_0%,#c4b49a_45%,#b8a482_100%)] px-4 pb-16 pt-28 md:px-8">
+    <main className="page-shell min-h-screen bg-[linear-gradient(160deg,#d9cdb8_0%,#c4b49a_45%,#b8a482_100%)] px-3 pb-16 sm:px-4 md:px-8">
       <div className="mx-auto max-w-6xl">
         <h1 className="brand text-4xl text-[var(--ink)]">Analytics</h1>
         <p className="mt-2 max-w-2xl text-[var(--muted)]">
@@ -105,7 +105,7 @@ export function AnalyticsPage() {
           <StatCard
             label="Red zone"
             value={totals.red}
-            hint="alerts or offline"
+            hint="battery / temp alerts"
             tone="red"
             active={filter === "red"}
             onClick={() => setFilter(filter === "red" ? "all" : "red")}
@@ -135,7 +135,7 @@ export function AnalyticsPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Filter by name"
-            className="min-w-[220px] flex-1 rounded-sm border border-[#8a7358] bg-[#f4ead8] px-3 py-2 text-sm"
+            className="min-w-0 flex-1 rounded-sm border border-[#8a7358] bg-[#f4ead8] px-3 py-2 text-sm sm:min-w-[220px]"
           />
         </div>
 

@@ -36,8 +36,8 @@ export function AlertsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-4xl px-4 pb-16 pt-28 md:pt-32">
-      <h1 className="brand text-4xl text-[var(--ink)]">Alerts</h1>
+    <main className="page-shell mx-auto max-w-4xl px-3 pb-16 sm:px-4">
+      <h1 className="brand text-3xl text-[var(--ink)] sm:text-4xl">Alerts</h1>
       <p className="mt-2 text-[var(--muted)]">
         Open incidents from twin rules — acknowledge to clear the inbox.
       </p>

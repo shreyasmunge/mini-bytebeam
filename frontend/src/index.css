@@ -17,6 +17,18 @@
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Page shells clear the fixed header on phones (brand + menu). */
+.page-shell {
+  padding-top: 5.5rem;
+}
+
+@media (min-width: 768px) {
+  .page-shell {
+    padding-top: 8rem;
+  }
 }
 
 h1,

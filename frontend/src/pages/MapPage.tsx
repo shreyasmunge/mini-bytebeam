@@ -125,11 +125,11 @@ export function MapPage() {
         ))}
       </MapContainer>
 
-      <aside className="pointer-events-none absolute bottom-4 left-4 z-[1000] max-w-sm rounded-sm bg-[var(--chrome)] px-4 py-3 text-[#f4ead8] shadow-lg backdrop-blur-sm md:bottom-6 md:left-6">
-        <p className="text-xs uppercase tracking-[0.18em] text-[#d2c4b0]">
+      <aside className="pointer-events-none absolute inset-x-3 bottom-3 z-[1000] max-h-[42vh] overflow-y-auto rounded-sm bg-[var(--chrome)] px-3 py-2.5 text-[#f4ead8] shadow-lg backdrop-blur-sm sm:inset-x-auto sm:bottom-4 sm:left-4 sm:max-h-none sm:max-w-sm sm:px-4 sm:py-3 md:bottom-6 md:left-6">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-[#d2c4b0] sm:text-xs">
           Chart legend
         </p>
-        <div className="mt-2 flex flex-wrap gap-3 text-sm">
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5 text-xs sm:text-sm">
           <span className="inline-flex items-center gap-2">
             <span className="vehicle-dot online" /> Online
           </span>
@@ -140,18 +140,18 @@ export function MapPage() {
             <span className="vehicle-dot alert" /> Red zone
           </span>
         </div>
-        <p className="mt-3 text-sm text-[#d2c4b0]">
+        <p className="mt-2 text-xs text-[#d2c4b0] sm:mt-3 sm:text-sm">
           {focus.length} devices · {online} online · {red} red zone
           {updatedAt ? ` · synced ${updatedAt.toLocaleTimeString()}` : ""}
         </p>
-        <p className="mt-1 text-xs text-[#b9a890]">
+        <p className="mt-1 text-[11px] text-[#b9a890] sm:text-xs">
           Polling every 2s
           {isBrowserDemoMode()
             ? " · browser demo mode (no hosted API yet)"
             : " · live API"}
         </p>
         {onMap.length > 0 && (
-          <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto text-xs text-[#d2c4b0]">
+          <ul className="mt-2 max-h-24 space-y-1 overflow-y-auto text-[11px] text-[#d2c4b0] sm:mt-3 sm:max-h-36 sm:text-xs">
             {focus.slice(0, 12).map((v) => (
               <li key={v.id} className="flex justify-between gap-3">
                   <span className="truncate">{v.name}</span>
@@ -172,11 +172,11 @@ export function MapPage() {
           </ul>
         )}
         {onMap.length === 0 && (
-          <p className="mt-2 text-sm text-[#f0c9a0]">
-            No GPS yet — run: cargo run --bin demo_fleet
+          <p className="mt-2 text-xs text-[#f0c9a0] sm:text-sm">
+            No GPS yet — open Pipeline and fire a blast, or run demo_fleet locally.
           </p>
         )}
-        {error && <p className="mt-2 text-sm text-[#f0a090]">API: {error}</p>}
+        {error && <p className="mt-2 text-xs text-[#f0a090] sm:text-sm">API: {error}</p>}
       </aside>
     </main>
   );

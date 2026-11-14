@@ -2,6 +2,7 @@
 
 use mini_bytebeam::config::Config;
 use mini_bytebeam::health::{offline_sweeper, retention_worker};
+use mini_bytebeam::playground::playground_keepalive;
 use mini_bytebeam::{app_router, build_state};
 
 #[tokio::main]
@@ -36,6 +37,7 @@ async fn main() {
         state.pool.clone(),
         state.config.telemetry_retain_days,
     ));
+    tokio::spawn(playground_keepalive(state.pool.clone()));
 
     let app = app_router(state);
     let addr = format!("{}:{}", config.host, config.port);

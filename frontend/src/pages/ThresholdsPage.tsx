@@ -42,7 +42,7 @@ export function ThresholdsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(160deg,#d9cdb8_0%,#c4b49a_50%,#b8a482_100%)] px-4 pb-16 pt-28 md:px-8">
+    <main className="page-shell min-h-screen bg-[linear-gradient(160deg,#d9cdb8_0%,#c4b49a_50%,#b8a482_100%)] px-3 pb-16 sm:px-4 md:px-8">
       <div className="mx-auto max-w-xl">
         <h1 className="brand text-4xl text-[var(--ink)]">Red zone limits</h1>
         <p className="mt-2 text-[var(--muted)]">

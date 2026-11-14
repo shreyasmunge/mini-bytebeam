@@ -81,7 +81,8 @@ async fn fleet_snapshot(State(state): State<AppState>) -> Result<Json<Vec<FleetV
                 (None, Some(t)) => t > thresholds.engine_temp_alert_c,
                 _ => false,
             };
-            let in_red_zone = reading_red || r.status == "offline";
+            // Offline is its own status (gray). Red zone = sensor alerts only.
+            let in_red_zone = reading_red;
 
             FleetVehicle {
                 id: r.id,
