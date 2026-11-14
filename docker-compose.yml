@@ -1,0 +1,40 @@
+# One command: docker compose up --build
+# Starts Postgres + FleetPulse API.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fleetpulse
+      POSTGRES_PASSWORD: fleetpulse
+      POSTGRES_DB: fleetpulse
+    ports:
+      # Host 5433 → container 5432 (5432 often taken by local Homebrew Postgres)
+      - "5433:5432"
+    volumes:
+      - fleetpulse_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fleetpulse -d fleetpulse"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://fleetpulse:fleetpulse@db:5432/fleetpulse
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
+      OFFLINE_AFTER_SECS: "60"
+      SWEEP_INTERVAL_SECS: "10"
+      ENGINE_TEMP_ALERT_C: "110"
+      BATTERY_LOW_PCT: "15"
+      RUST_LOG: info
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  fleetpulse_pg:
