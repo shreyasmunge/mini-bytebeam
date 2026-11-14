@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchFleetSnapshot, type FleetVehicle } from "../api";
+import { fetchFleetSnapshot, isBrowserDemoMode, type FleetVehicle } from "../api";
 
 function dotIcon(v: FleetVehicle) {
   const kind = v.in_red_zone ? "alert" : v.status === "online" ? "online" : "offline";
@@ -145,12 +145,15 @@ export function MapPage() {
           {updatedAt ? ` · synced ${updatedAt.toLocaleTimeString()}` : ""}
         </p>
         <p className="mt-1 text-xs text-[#b9a890]">
-          Polling every 2s — fleet stays mostly green online.
+          Polling every 2s
+          {isBrowserDemoMode()
+            ? " · browser demo mode (no hosted API yet)"
+            : " · live API"}
         </p>
         {onMap.length > 0 && (
           <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto text-xs text-[#d2c4b0]">
             {focus.slice(0, 12).map((v) => (
-                <li key={v.id} className="flex justify-between gap-3">
+              <li key={v.id} className="flex justify-between gap-3">
                   <span className="truncate">{v.name}</span>
                   <span
                     className={

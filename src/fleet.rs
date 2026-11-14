@@ -1,4 +1,4 @@
-//! Fleet snapshot APIs for the dashboard map.
+//! Fleet snapshot APIs — map reads device_state (twin), not full history.
 
 use axum::extract::{Path, Query, State};
 use axum::routing::get;
@@ -45,7 +45,7 @@ struct FleetVehicleRow {
     recorded_at: Option<DateTime<Utc>>,
 }
 
-/// GET /fleet/snapshot — latest position + health for the map.
+/// GET /fleet/snapshot — O(devices) via twin table.
 async fn fleet_snapshot(State(state): State<AppState>) -> Result<Json<Vec<FleetVehicle>>, AppError> {
     let thresholds = crate::settings::load_thresholds(&state.pool).await?;
 
@@ -55,21 +55,15 @@ async fn fleet_snapshot(State(state): State<AppState>) -> Result<Json<Vec<FleetV
             d.id,
             d.name,
             d.status,
-            d.last_seen_at,
-            t.latitude,
-            t.longitude,
-            t.speed_kmh,
-            t.battery_pct,
-            t.engine_temp_c,
-            t.recorded_at
+            COALESCE(s.last_seen_at, d.last_seen_at) AS last_seen_at,
+            s.latitude,
+            s.longitude,
+            s.speed_kmh,
+            s.battery_pct,
+            s.engine_temp_c,
+            s.recorded_at
         FROM devices d
-        LEFT JOIN LATERAL (
-            SELECT latitude, longitude, speed_kmh, battery_pct, engine_temp_c, recorded_at
-            FROM telemetry_events
-            WHERE device_id = d.id
-            ORDER BY recorded_at DESC
-            LIMIT 1
-        ) t ON true
+        LEFT JOIN device_state s ON s.device_id = d.id
         ORDER BY d.name
         "#,
     )
@@ -124,7 +118,7 @@ pub struct TelemetryRow {
     pub engine_temp_c: f64,
 }
 
-/// GET /devices/:id/telemetry?limit=50
+/// GET /devices/:id/telemetry?limit=50 — history path (not used by live map).
 async fn device_telemetry(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,

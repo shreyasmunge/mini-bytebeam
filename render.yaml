@@ -1,0 +1,23 @@
+# Render Blueprint — API only (DB = Supabase via DATABASE_URL env).
+services:
+  - type: web
+    name: fleetpulse-api
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: DB_MAX_CONNECTIONS
+        value: "10"
+      - key: PLAYGROUND_MAX_EVENTS
+        value: "200"
+      - key: RUST_LOG
+        value: info
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false

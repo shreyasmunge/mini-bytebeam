@@ -1,8 +1,8 @@
-//! Device registration and lookup APIs.
+//! Device registration, lookup, and API key rotation.
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/devices", get(list_devices).post(register_device))
         .route("/devices/{id}", get(get_device))
+        .route("/devices/{id}/rotate-key", post(rotate_key))
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,6 +33,13 @@ pub struct RegisterResponse {
     pub status: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RotateKeyResponse {
+    pub id: Uuid,
+    pub api_key: String,
+    pub rotated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct DevicePublic {
     pub id: Uuid,
@@ -43,12 +51,10 @@ pub struct DevicePublic {
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
-    /// online | offline | all (default)
     pub status: Option<String>,
     pub q: Option<String>,
 }
 
-/// GET /devices?status=online&q=truck — used by the dashboard (no auth in MVP).
 async fn list_devices(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
@@ -78,8 +84,6 @@ async fn list_devices(
     Ok(Json(rows))
 }
 
-/// POST /devices
-/// Anyone can register a device in this MVP (no admin login).
 async fn register_device(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
@@ -119,8 +123,6 @@ async fn register_device(
     ))
 }
 
-/// GET /devices/:id
-/// Dashboard can read without auth; devices with API key can also read their own.
 async fn get_device(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -140,6 +142,40 @@ async fn get_device(
     Ok(Json(device))
 }
 
-// Keep AuthDevice import used for future locked-down routes / tests.
-#[allow(dead_code)]
-fn _auth_placeholder(_: AuthDevice) {}
+/// POST /devices/:id/rotate-key — requires current Bearer key; returns new key once.
+async fn rotate_key(
+    State(state): State<AppState>,
+    auth: AuthDevice,
+    Path(id): Path<Uuid>,
+) -> Result<Json<RotateKeyResponse>, AppError> {
+    if auth.id != id {
+        return Err(AppError::Unauthorized(
+            "you can only rotate your own API key".into(),
+        ));
+    }
+
+    let api_key = generate_api_key();
+    let api_key_hash = hash_api_key(&api_key);
+    let rotated_at = Utc::now();
+
+    sqlx::query(
+        r#"
+        UPDATE devices
+        SET api_key_hash = $2, api_key_rotated_at = $3
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(&api_key_hash)
+    .bind(rotated_at)
+    .execute(&state.pool)
+    .await?;
+
+    state.auth_cache.invalidate_device(id).await;
+
+    Ok(Json(RotateKeyResponse {
+        id,
+        api_key,
+        rotated_at,
+    }))
+}

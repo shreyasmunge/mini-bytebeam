@@ -1,15 +1,15 @@
 # One command: docker compose up --build
-# Starts Postgres + FleetPulse API.
+# Postgres (Timescale when available) + Mosquitto + FleetPulse API.
 
 services:
   db:
-    image: postgres:16-alpine
+    # TimescaleDB = Postgres + hypertables. Falls back gracefully in migrations if needed.
+    image: timescale/timescaledb:latest-pg16
     environment:
       POSTGRES_USER: fleetpulse
       POSTGRES_PASSWORD: fleetpulse
       POSTGRES_DB: fleetpulse
     ports:
-      # Host 5433 → container 5432 (5432 often taken by local Homebrew Postgres)
       - "5433:5432"
     volumes:
       - fleetpulse_pg:/var/lib/postgresql/data
@@ -18,6 +18,19 @@ services:
       interval: 3s
       timeout: 5s
       retries: 10
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
 
   api:
     build: .
@@ -31,10 +44,28 @@ services:
       SWEEP_INTERVAL_SECS: "10"
       ENGINE_TEMP_ALERT_C: "110"
       BATTERY_LOW_PCT: "15"
+      DB_MAX_CONNECTIONS: "40"
+      AUTH_CACHE_TTL_SECS: "300"
+      TELEMETRY_RETAIN_DAYS: "14"
       RUST_LOG: info
     depends_on:
       db:
         condition: service_healthy
+
+  mqtt_bridge:
+    build: .
+    command: ["mqtt_bridge"]
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_TOPIC: fleet/+/telemetry
+      API_BASE: http://api:3000
+      RUST_LOG: info
+    depends_on:
+      - mosquitto
+      - api
+    profiles:
+      - mqtt
 
 volumes:
   fleetpulse_pg:

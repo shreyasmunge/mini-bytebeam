@@ -197,5 +197,106 @@ async fn high_temp_creates_alert() {
     assert!(!list.as_array().unwrap().is_empty());
 }
 
-#[allow(dead_code)]
-fn _silence_unused_socketaddr(_: SocketAddr) {}
+#[tokio::test]
+async fn twin_and_fleet_snapshot() {
+    let base = start_test_server().await;
+    let (device_id, key) = register(&base, "twin-truck").await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .post(format!("{}/telemetry", base))
+        .header("Authorization", format!("Bearer {}", key))
+        .json(&json!({
+            "id": Uuid::new_v4(),
+            "recorded_at": Utc::now(),
+            "latitude": 12.34,
+            "longitude": 77.12,
+            "speed_kmh": 22.0,
+            "battery_pct": 66.0,
+            "engine_temp_c": 90.0
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 201);
+
+    let snap = client
+        .get(format!("{}/fleet/snapshot", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(snap.status(), 200);
+    let fleet: Value = snap.json().await.unwrap();
+    let found = fleet
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["id"] == device_id.to_string())
+        .expect("device in snapshot");
+    assert_eq!(found["latitude"], 12.34);
+    assert_eq!(found["status"], "online");
+}
+
+#[tokio::test]
+async fn batch_ingest_and_ack_alert() {
+    let base = start_test_server().await;
+    let (_device_id, key) = register(&base, "batch-truck").await;
+    let client = reqwest::Client::new();
+
+    let events = vec![
+        json!({
+            "id": Uuid::new_v4(),
+            "recorded_at": Utc::now(),
+            "latitude": 12.0,
+            "longitude": 77.0,
+            "speed_kmh": 10.0,
+            "battery_pct": 50.0,
+            "engine_temp_c": 90.0
+        }),
+        json!({
+            "id": Uuid::new_v4(),
+            "recorded_at": Utc::now(),
+            "latitude": 12.1,
+            "longitude": 77.1,
+            "speed_kmh": 11.0,
+            "battery_pct": 10.0,
+            "engine_temp_c": 125.0
+        }),
+    ];
+
+    let res = client
+        .post(format!("{}/telemetry/batch", base))
+        .header("Authorization", format!("Bearer {}", key))
+        .json(&json!({ "events": events }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 201);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["accepted"], 2);
+
+    let open = client
+        .get(format!("{}/alerts?status=open", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(open.status(), 200);
+    let list: Value = open.json().await.unwrap();
+    let alert_id = list.as_array().unwrap()[0]["id"].as_str().unwrap().to_string();
+
+    let ack = client
+        .post(format!("{}/alerts/{}/ack", base, alert_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ack.status(), 200);
+
+    let metrics = client
+        .get(format!("{}/metrics/pipeline", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(metrics.status(), 200);
+
+    let _ = SocketAddr::from(([127, 0, 0, 1], 0));
+}

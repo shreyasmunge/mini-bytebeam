@@ -1,61 +1,88 @@
 # FleetPulse (`mini-bytebeam`)
 
-Small **Rust IoT telemetry backend** for learning / interview practice (Bytebeam-style).
+Rust IoT telemetry backend + React map UI (Bytebeam-style portfolio).
 
-Connected vehicles register, send GPS/speed/battery/temp, stay online/offline, and raise simple alerts. Focus: **Axum + Tokio + PostgreSQL + idempotent ingestion + tests + load test**.
+**Industry path shipped:** device twin → alerts+ack → batch ingest → Timescale-ready storage + retention → MQTT bridge → auth cache/rotate → pipeline metrics. Designed to load-test **thousands of vehicles** (target ~1k–5k msg/s on a laptop).
 
 ## Quick start
 
 ```bash
-# Docker engine (this machine uses Colima)
 colima start   # if needed
 
-docker compose up -d db
+# Fresh Timescale volume recommended if you previously used plain postgres:16
+docker compose down
+docker compose up -d db mosquitto
+
 export DATABASE_URL=postgres://fleetpulse:fleetpulse@localhost:5433/fleetpulse
 cargo run
 ```
 
 API: http://127.0.0.1:3000
 
-### Frontend (React + TypeScript + Tailwind — Bytebeam-style)
+### Frontend
 
 ```bash
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-Open **http://127.0.0.1:5173/** — vintage live map (home), Analytics, Red zone limits.
+Open http://127.0.0.1:5173/ — Map, Analytics, **Alerts**, **Pipeline**, Red zone.
+
+## Scale features (interview talking points)
+
+| Feature | What |
+|---------|------|
+| **Device twin** | `device_state` — map reads O(devices), not history |
+| **Alerts + ack** | `GET /alerts`, `POST /alerts/:id/ack`, offline alerts from sweeper |
+| **Batch ingest** | `POST /telemetry/batch` (up to 2000) + idempotent `ON CONFLICT (id)` |
+| **Auth cache** | hashed API key → device in memory (TTL) |
+| **Key rotate** | `POST /devices/:id/rotate-key` |
+| **Timescale** | docker image + hypertable when extension present; retention rollup |
+| **MQTT** | Mosquitto + `mqtt_bridge` → same HTTP ingest path |
+| **Metrics** | `GET /metrics`, `GET /metrics/pipeline` |
+
+## Load test (thousands of vehicles)
 
 ```bash
-curl http://127.0.0.1:3000/health
+# API running first
+# ~1000 vehicles @ 1 Hz
+SIM_DEVICES=1000 SIM_INTERVAL_MS=1000 SIM_DURATION_SECS=60 \
+  cargo run --release --bin load_fleet
+
+# Higher throughput via batches
+SIM_DEVICES=500 BATCH_SIZE=10 SIM_INTERVAL_MS=1000 SIM_DURATION_SECS=60 \
+  cargo run --release --bin load_fleet
+
+# k6
+VUS=200 BATCH_SIZE=50 k6 run benchmarks/telemetry.js
+
+# Watch live counters
+curl -s http://127.0.0.1:3000/metrics/pipeline | jq
 ```
 
-## Try the APIs
+## MQTT path
 
 ```bash
-# 1) Register a device (save api_key!)
+docker compose up -d mosquitto
+cargo run --bin mqtt_bridge
+# or: docker compose --profile mqtt up -d mqtt_bridge
+
+# Publish (payload needs api_key + telemetry fields):
+# topic: fleet/{device_id}/telemetry
+```
+
+## API smoke
+
+```bash
 curl -s -X POST http://127.0.0.1:3000/devices \
   -H 'content-type: application/json' \
   -d '{"name":"truck-1"}' | jq
 
-# 2) Send telemetry (replace KEY and use a new UUID each time, or reuse to test idempotency)
-EVENT_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
-curl -s -X POST http://127.0.0.1:3000/telemetry \
+# Batch
+curl -s -X POST http://127.0.0.1:3000/telemetry/batch \
   -H "Authorization: Bearer KEY" \
   -H 'content-type: application/json' \
-  -d "{\"id\":\"$EVENT_ID\",\"recorded_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"latitude\":12.97,\"longitude\":77.59,\"speed_kmh\":42,\"battery_pct\":78,\"engine_temp_c\":91}"
+  -d '{"events":[{"id":"'"$(uuidgen | tr A-Z a-z)"'","recorded_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","latitude":12.97,"longitude":77.59,"speed_kmh":42,"battery_pct":78,"engine_temp_c":91}]}'
 ```
-
-## Local dev (API on host, DB in Docker)
-
-```bash
-docker compose up -d db
-export DATABASE_URL=postgres://fleetpulse:fleetpulse@localhost:5433/fleetpulse
-cargo run
-```
-
-> Postgres is published on **host port 5433** (not 5432) so it does not clash with a local Homebrew Postgres.
 
 ## Tests
 
@@ -65,65 +92,17 @@ export DATABASE_URL=postgres://fleetpulse:fleetpulse@localhost:5433/fleetpulse
 cargo test
 ```
 
-## Simulator (fake fleet)
+## Docs
 
-```bash
-# API must be running
-cargo run --bin simulator
-# SIM_DEVICES=10 SIM_INTERVAL_MS=1000 cargo run --bin simulator
-```
+- `REVISION_AND_DESIGN.md` — decisions / HLD / LLD  
+- `CODE_WALKTHROUGH.md` — file walkthrough  
+- `BYTEBEAM_PRODUCT_LENS.md` — product lens  
 
-## Demo fleet (best for the map UI)
-
-Seeds 8 vehicles around Bengaluru (healthy / low battery / hot engine / flaky offline↔online) and keeps updating so **polling is obvious**.
-
-```bash
-# API + frontend already running
-cargo run --bin demo_fleet
-```
-
-Watch http://127.0.0.1:5173/ — dots move, values change, flaky vehicles go offline then online.
-
-See also `BYTEBEAM_PRODUCT_LENS.md` for product-shaped next features.
-
-## Load test (k6)
-
-```bash
-k6 run benchmarks/telemetry.js
-```
-
-## Project layout
-
-```
-src/
-  main.rs          start server
-  lib.rs           router + shared state
-  config.rs        env settings
-  error.rs         HTTP error mapping
-  db.rs            pool + migrations
-  auth.rs          Bearer API key auth
-  devices.rs       register / get device
-  telemetry.rs     ingest + idempotency + alerts
-  health.rs        /health /ready + offline sweeper
-  bin/simulator.rs fake vehicles
-migrations/        SQL schema
-tests/             integration tests
-benchmarks/        k6 script
-```
-
-## Docs for revision
-
-- `REVISION_AND_DESIGN.md` — decisions, HLD, LLD, setup history  
-- `CODE_WALKTHROUGH.md` — plain-English walk through every file  
-
-## Default local credentials
+## Defaults
 
 | What | Value |
 |------|--------|
-| Postgres user | `fleetpulse` |
-| Postgres password | `fleetpulse` |
-| Database | `fleetpulse` |
-| API port | `3000` |
-| Postgres host port | `5433` (maps to 5432 in the container) |
-
-Device API keys are **generated by the server** on register (`fp_live_...`).
+| Postgres | `fleetpulse` / `fleetpulse` @ localhost:**5433** |
+| API | `:3000` |
+| MQTT | `:1883` |
+| Retain raw telemetry | 14 days (`TELEMETRY_RETAIN_DAYS`) |

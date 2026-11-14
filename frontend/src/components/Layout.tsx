@@ -30,6 +30,12 @@ export function Layout() {
           <NavLink to="/analytics" className={linkClass}>
             Analytics
           </NavLink>
+          <NavLink to="/alerts" className={linkClass}>
+            Alerts
+          </NavLink>
+          <NavLink to="/pipeline" className={linkClass}>
+            Pipeline
+          </NavLink>
           <NavLink to="/thresholds" className={linkClass}>
             Red zone
           </NavLink>

@@ -13,6 +13,14 @@ path = "src/bin/simulator.rs"
 name = "demo_fleet"
 path = "src/bin/demo_fleet.rs"
 
+[[bin]]
+name = "mqtt_bridge"
+path = "src/bin/mqtt_bridge.rs"
+
+[[bin]]
+name = "load_fleet"
+path = "src/bin/load_fleet.rs"
+
 [dependencies]
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
@@ -27,6 +35,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rumqttc = "0.24"
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
