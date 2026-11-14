@@ -13,26 +13,34 @@ function dotIcon(v: FleetVehicle) {
   });
 }
 
-/** Fit the map once when GPS first appears — never again on poll updates. */
+/** Fit when GPS first appears, or when the fleet spreads much wider (line → city scatter). */
 function FitBoundsOnce({ vehicles }: { vehicles: FleetVehicle[] }) {
   const map = useMap();
-  const didFit = useRef(false);
+  const fittedSpan = useRef(0);
 
   useEffect(() => {
-    if (didFit.current) return;
-
     const pts = vehicles.filter(
       (v) => v.latitude != null && v.longitude != null,
     ) as Array<FleetVehicle & { latitude: number; longitude: number }>;
     if (pts.length === 0) return;
 
-    didFit.current = true;
     if (pts.length === 1) {
-      map.setView([pts[0].latitude, pts[0].longitude], 13);
+      if (fittedSpan.current === 0) {
+        map.setView([pts[0].latitude, pts[0].longitude], 13);
+        fittedSpan.current = 0.01;
+      }
       return;
     }
     const bounds = L.latLngBounds(pts.map((p) => [p.latitude, p.longitude]));
-    map.fitBounds(bounds.pad(0.25));
+    const span = Math.max(
+      bounds.getNorth() - bounds.getSouth(),
+      bounds.getEast() - bounds.getWest(),
+    );
+    // Refit if first time, or fleet became clearly more spread out.
+    if (fittedSpan.current === 0 || span > fittedSpan.current * 2.5) {
+      map.fitBounds(bounds.pad(0.25));
+      fittedSpan.current = span;
+    }
   }, [vehicles, map]);
 
   return null;
