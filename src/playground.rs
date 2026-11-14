@@ -249,18 +249,54 @@ async fn playground_ingest(
     ))
 }
 
+/// Scattered Bangalore-area homes (not a straight line).
+const PLAYGROUND_HOMES: &[(f64, f64)] = &[
+    (13.1989, 77.7068), // airport
+    (12.9698, 77.7500), // whitefield
+    (12.8452, 77.6602), // electronic city
+    (12.9352, 77.6245), // koramangala
+    (13.1007, 77.5963), // yelahanka
+    (12.9510, 77.5200), // mysore road
+    (12.9784, 77.6408), // indiranagar
+    (13.0358, 77.5970), // hebbal
+    (12.9308, 77.5838), // jayanagar
+    (12.9591, 77.6974), // marathahalli
+];
+
+fn playground_home(index: usize) -> (f64, f64) {
+    PLAYGROUND_HOMES[index % PLAYGROUND_HOMES.len()]
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum PlayRole {
+    Healthy,
+    HeatCycle,
+    DropCycle,
+}
+
+fn playground_role(index: usize) -> PlayRole {
+    // Real ops console feel: most green, ~1 heat, ~1 drop.
+    match index % 10 {
+        2 => PlayRole::HeatCycle,
+        5 => PlayRole::DropCycle,
+        _ => PlayRole::Healthy,
+    }
+}
+
 fn generate_events(count: usize, vehicles: usize) -> Vec<TelemetryRequest> {
     let now = Utc::now();
     (0..count)
         .map(|i| {
             let v = i % vehicles.max(1);
+            let (base_lat, base_lon) = playground_home(v);
+            // Small per-event jitter so blasts don't stack on one pixel.
+            let j = ((i * 17 + v * 31) % 40) as f64;
             TelemetryRequest {
                 id: Uuid::new_v4(),
                 recorded_at: now,
-                latitude: 12.90 + (v as f64) * 0.002,
-                longitude: 77.50 + ((v % 20) as f64) * 0.01,
+                latitude: base_lat + (j - 20.0) * 0.00035,
+                longitude: base_lon + ((j * 0.7) - 14.0) * 0.00035,
                 speed_kmh: 20.0 + ((i % 40) as f64),
-                // Stay under red-zone thresholds (battery≥15, temp≤110 by default).
                 battery_pct: 55.0 + ((v % 35) as f64),
                 engine_temp_c: 78.0 + ((v % 18) as f64),
             }
@@ -268,9 +304,9 @@ fn generate_events(count: usize, vehicles: usize) -> Vec<TelemetryRequest> {
         .collect()
 }
 
-/// Keep hosted playground vehicles online with healthy twin ticks (demo map).
+/// Live hosted demo: mostly healthy, 1 heat-cycle + 1 drop-cycle, scattered on the map.
 pub async fn playground_keepalive(pool: sqlx::PgPool) {
-    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(12));
+    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(5));
     loop {
         ticker.tick().await;
         if let Err(err) = tick_playground_keepalive(&pool).await {
@@ -283,19 +319,16 @@ async fn tick_playground_keepalive(pool: &sqlx::PgPool) -> Result<(), String> {
     #[derive(sqlx::FromRow)]
     struct Row {
         id: Uuid,
-        latitude: Option<f64>,
-        longitude: Option<f64>,
-        battery_pct: Option<f64>,
     }
 
     let rows: Vec<Row> = sqlx::query_as(
         r#"
-        SELECT d.id, s.latitude, s.longitude, s.battery_pct
+        SELECT d.id
         FROM devices d
         INNER JOIN device_state s ON s.device_id = d.id
         WHERE d.name LIKE 'playground-%'
         ORDER BY d.name
-        LIMIT 100
+        LIMIT 10
         "#,
     )
     .fetch_all(pool)
@@ -306,20 +339,55 @@ async fn tick_playground_keepalive(pool: &sqlx::PgPool) -> Result<(), String> {
         return Ok(());
     }
 
+    let thresholds = crate::settings::load_thresholds(pool)
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    let offline_after = thresholds.offline_after_secs.max(15) as u64;
+    // Silent long enough for sweeper to mark offline, then stay offline briefly.
+    let drop_silent_secs = offline_after + 25;
+    let drop_cycle_secs = drop_silent_secs + 80;
+    let heat_on_secs: u64 = 35;
+    let heat_cycle_secs: u64 = 105;
+
     let now = Utc::now();
+    let t = now.timestamp().max(0) as u64;
+
     for (i, row) in rows.iter().enumerate() {
-        let base_lat = row.latitude.unwrap_or(12.97);
-        let base_lon = row.longitude.unwrap_or(77.59);
-        let drift = ((now.timestamp() as usize / 12 + i) % 20) as f64 * 0.00008;
-        let battery = (row.battery_pct.unwrap_or(70.0) + 0.2).clamp(55.0, 95.0);
-        let temp = 82.0 + ((i % 12) as f64);
-        let speed = 25.0 + ((i % 30) as f64);
+        let role = playground_role(i);
+        let (home_lat, home_lon) = playground_home(i);
+
+        // Drop cycle: stop ticking so sweeper flips to offline (real case).
+        if role == PlayRole::DropCycle {
+            let phase = t % drop_cycle_secs;
+            if phase >= 80 {
+                continue;
+            }
+        }
+
+        let heating = role == PlayRole::HeatCycle && (t % heat_cycle_secs) < heat_on_secs;
+
+        // Wander around the home area (not a line).
+        let tick = (t / 5) + (i as u64) * 13;
+        let ang = (tick as f64) * 0.17 + (i as f64) * 1.7;
+        let radius = 0.004 + ((i % 5) as f64) * 0.0012;
+        let lat = home_lat + ang.sin() * radius;
+        let lon = home_lon + ang.cos() * radius * 1.15;
+
+        let speed = 18.0 + ((tick + i as u64) % 32) as f64;
+        let mut battery = 62.0 + (((tick / 3) + i as u64) % 28) as f64;
+        if battery > 92.0 {
+            battery = 68.0;
+        }
+        let mut temp = 84.0 + (((tick / 2) + i as u64) % 14) as f64 * 0.8;
+        if heating {
+            temp = 116.0 + ((tick % 4) as f64);
+        }
 
         let twin = TwinUpdate {
             device_id: row.id,
             recorded_at: now,
-            latitude: base_lat + drift,
-            longitude: base_lon + drift * 0.6,
+            latitude: lat,
+            longitude: lon,
             speed_kmh: speed,
             battery_pct: battery,
             engine_temp_c: temp,
@@ -331,19 +399,52 @@ async fn tick_playground_keepalive(pool: &sqlx::PgPool) -> Result<(), String> {
             .await
             .map_err(|e| format!("{e:?}"))?;
 
-        // Clear stale offline alerts when the demo fleet is breathing again.
-        let _ = sqlx::query(
-            r#"
-            UPDATE alerts
-            SET acknowledged_at = now()
-            WHERE device_id = $1
-              AND kind = 'offline'
-              AND acknowledged_at IS NULL
-            "#,
-        )
-        .bind(row.id)
-        .execute(pool)
-        .await;
+        if heating {
+            let open: Option<(Uuid,)> = sqlx::query_as(
+                r#"
+                SELECT id FROM alerts
+                WHERE device_id = $1 AND kind = 'high_engine_temp' AND acknowledged_at IS NULL
+                LIMIT 1
+                "#,
+            )
+            .bind(row.id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+            if open.is_none() {
+                let _ = sqlx::query(
+                    r#"
+                    INSERT INTO alerts (id, device_id, kind, message, telemetry_id)
+                    VALUES ($1, $2, 'high_engine_temp', $3, NULL)
+                    "#,
+                )
+                .bind(Uuid::new_v4())
+                .bind(row.id)
+                .bind(format!(
+                    "engine_temp_c={temp} above threshold {}",
+                    thresholds.engine_temp_alert_c
+                ))
+                .execute(pool)
+                .await;
+            }
+        }
+
+        // Back online after a drop — clear offline alerts.
+        if role == PlayRole::DropCycle || role == PlayRole::Healthy {
+            let _ = sqlx::query(
+                r#"
+                UPDATE alerts
+                SET acknowledged_at = now()
+                WHERE device_id = $1
+                  AND kind = 'offline'
+                  AND acknowledged_at IS NULL
+                "#,
+            )
+            .bind(row.id)
+            .execute(pool)
+            .await;
+        }
+
     }
 
     Ok(())

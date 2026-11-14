@@ -32,7 +32,15 @@ export function AnalyticsPage() {
         const data = await fetchFleetSnapshot();
         if (cancelled) return;
         const demos = data.filter((v) => v.name.startsWith("demo-"));
-        setFleet(demos.length > 0 ? demos : data);
+        if (demos.length > 0) {
+          setFleet(demos);
+        } else {
+          const playground = data
+            .filter((v) => v.name.startsWith("playground-"))
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .slice(0, 10);
+          setFleet(playground.length > 0 ? playground : data);
+        }
         setError(null);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");

@@ -81,11 +81,16 @@ export function MapPage() {
     };
   }, []);
 
-  // Prefer live demo fleet; fall back to everything with GPS.
+  // Prefer named demo fleet; else first 10 playground vehicles (hosted live demo).
   const focus = useMemo(() => {
     const withGps = vehicles.filter((v) => v.latitude != null && v.longitude != null);
     const demos = withGps.filter((v) => v.name.startsWith("demo-"));
-    return demos.length > 0 ? demos : withGps;
+    if (demos.length > 0) return demos;
+    const playground = withGps
+      .filter((v) => v.name.startsWith("playground-"))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 10);
+    return playground.length > 0 ? playground : withGps;
   }, [vehicles]);
 
   const onMap = focus;
